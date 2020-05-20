@@ -1,0 +1,491 @@
+diff -x '*.pyc' -Naur ./assignment2/gem5/src/mem/cache/replacement_policies/RefCount_rp.cc ./gem5/src/mem/cache/replacement_policies/RefCount_rp.cc
+--- ./assignment2/gem5/src/mem/cache/replacement_policies/RefCount_rp.cc	1969-12-31 17:00:00.000000000 -0700
++++ ./gem5/src/mem/cache/replacement_policies/RefCount_rp.cc	2020-03-24 18:17:44.324067736 -0700
+@@ -0,0 +1,321 @@
++/**
++ * Copyright (c) 2018 Inria
++ * All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions are
++ * met: redistributions of source code must retain the above copyright
++ * notice, this list of conditions and the following disclaimer;
++ * redistributions in binary form must reproduce the above copyright
++ * notice, this list of conditions and the following disclaimer in the
++ * documentation and/or other materials provided with the distribution;
++ * neither the name of the copyright holders nor the names of its
++ * contributors may be used to endorse or promote products derived from
++ * this software without specific prior written permission.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
++ * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
++ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
++ * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
++ * OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
++ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
++ * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
++ * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
++ * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
++ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ *
++ * Authors: Raunak
++ */
++
++#include "mem/cache/replacement_policies/RefCount_rp.hh"
++
++#include <cassert>
++#include <memory>
++
++#include "params/RefCount.hh"
++#include "mem/cache/replacement_policies/replaceable_entry.hh"
++
++//Declaring structure for the prediction table
++
++     struct pred {
++
++           unsigned maxCstored;
++	   unsigned confstored;
++	};
++
++    pred *table = new pred[255*255];
++    
++  
++
++RefCount::RefCount(const Params *p)
++    : BaseReplacementPolicy(p)
++{
++}
++
++void
++RefCount::invalidate(const std::shared_ptr<ReplacementData>& replacement_data)
++const
++{
++    std::shared_ptr<REFReplData> casted_replacement_data =
++        std::static_pointer_cast<REFReplData>(replacement_data);
++    // Reset last touch timestamp and count
++    casted_replacement_data->lastTouchTick = Tick(0);
++    
++}
++
++void
++RefCount::touch(const std::shared_ptr<ReplacementData>& replacement_data) const
++{
++    std::shared_ptr<REFReplData> casted_replacement_data =
++        std::static_pointer_cast<REFReplData>(replacement_data);
++    std::shared_ptr<ReplacementData> casted_data =
++        std::static_pointer_cast<ReplacementData>(replacement_data);
++    
++    // Update last touch timestamp
++    casted_replacement_data->lastTouchTick = curTick();
++   //Increasing the count of every block
++    std::vector<ReplaceableEntry*> assoc = casted_data->getSetAssocEntry();
++    for(const auto& line : assoc) {
++       
++    if(std::static_pointer_cast<REFReplData>(
++                   line->replacementData)->Count <15) {
++      std::static_pointer_cast<REFReplData>(
++                    line->replacementData)->Count=std::static_pointer_cast<REFReplData>(
++                    line->replacementData)->Count + 1;
++	}
++    }
++    //Resetting the counter maxCpresent to new maximum
++    if(casted_replacement_data->Count > casted_replacement_data->maxCpresent)
++      casted_replacement_data->maxCpresent = casted_replacement_data->Count;
++    // Reset the counter
++    casted_replacement_data->Count = 0;
++}
++
++void
++RefCount::reset(const std::shared_ptr<ReplacementData>& replacement_data) const
++{
++    std::shared_ptr<REFReplData> casted_replacement_data =
++        std::static_pointer_cast<REFReplData>(replacement_data);
++    std::shared_ptr<ReplacementData> casted_data =
++        std::static_pointer_cast<ReplacementData>(replacement_data);
++    // Set last touch timestamp
++    casted_replacement_data->lastTouchTick = curTick();
++
++   uint64_t e=0,f=0,b=0,c=0,k=0,m=0,n=0,o=0,p=0,q=0,r=0,s=0;
++   uint8_t set=0;
++   //getting the set value for column indexing in the prediction table
++   uint32_t d = casted_data->getSet();
++   
++   
++     e = d%256;
++     d = d/256;
++     f = d%256;
++     k = e^f;
++     d = d/256;
++     e = d%256;
++     d = d/256;
++     f = d%256;
++     m = e^f;
++     set = k^m;
++   
++  /** int g = casted_data->getWay();
++  
++     h = g%256;
++     g = g/256;
++     i = g%256;
++     j = h^i;
++     g = g/256;
++     h = g%256;
++     g = g/256;
++     i = g%256;
++     l = h^i;
++     way = j^l;  */
++     
++   uint8_t addr=set;
++   //getting the hashed PC through program counter for row indexing in the prediction table, pc is 48 bits but it doesn't matter if we xor by 0
++   uint64_t a = casted_data->getPC();
++   
++     b = a%256;
++     a = a/256;
++     c = a%256;
++     n = b^c;
++     a = a/256;
++     b = a%256;
++     a = a/256;
++     c = a%256;
++     o = b^c;
++     p = n^o;
++     a = a/256;
++     b = a%256;
++     a = a/256;
++     c = a%256;
++     q = b^c;
++     a = a/256;
++     b = a%256;
++     a = a/256;
++     c = a%256;
++     r = b^c;
++     s = q^r;
++ 
++   uint8_t hashedpc = p^s;
++     
++   
++    //Retrieving the data from the prediction table
++    casted_replacement_data->Count = 0;
++    casted_replacement_data->maxCpresent=0;
++    casted_replacement_data->maxCpast=table[hashedpc*255+addr].maxCstored;
++    casted_replacement_data->conf=table[hashedpc*255+addr].confstored;
++}
++
++ReplaceableEntry*
++RefCount::getVictim(const ReplacementCandidates& candidates) const
++{
++
++    // There must be at least one replacement candidate
++    assert(candidates.size() > 0);
++    int counter=0;
++    //Visit all candidates to find the MRU victim
++    ReplaceableEntry* victimMRU = candidates[0];
++    for (const auto& candidate : candidates) {
++    
++        if (std::static_pointer_cast<REFReplData>(
++                    candidate->replacementData)->lastTouchTick >
++                std::static_pointer_cast<REFReplData>(
++                    victimMRU->replacementData)->lastTouchTick) {
++                     
++			victimMRU = candidate;
++		} 
++
++
++	}
++
++    // Visit all candidates to find victim
++    ReplaceableEntry* victim = candidates[0];
++    for (const auto& candidate : candidates) {
++
++	
++        // Update victim entry if necessary
++        //Find the non-mru expired block
++        if ((std::static_pointer_cast<REFReplData>(
++                    candidate->replacementData)->lastTouchTick <
++                std::static_pointer_cast<REFReplData>(
++                    victim->replacementData)->lastTouchTick) && (std::static_pointer_cast<REFReplData>(
++                    candidate->replacementData)->conf == 1) && (std::static_pointer_cast<REFReplData>(
++                    candidate->replacementData)->Count > std::static_pointer_cast<REFReplData>(
++                    candidate->replacementData)->maxCpresent) && (std::static_pointer_cast<REFReplData>(
++                    candidate->replacementData)->Count > std::static_pointer_cast<REFReplData>(
++                    candidate->replacementData)->maxCpast) && (victim != victimMRU)) {
++		
++            		victim = candidate;
++			//Don't find the lru if the expired block is found
++                        counter=counter+1;
++		
++        }
++
++  
++       //Increase the counter for each block 
++       if(std::static_pointer_cast<REFReplData>(
++                    candidate->replacementData)->Count <15) {
++       std::static_pointer_cast<REFReplData>(
++                    candidate->replacementData)->Count=std::static_pointer_cast<REFReplData>(
++                   candidate->replacementData)->Count + 1;
++	
++       }
++    
++}
++
++
++
++    //Visit all candidates to find the LRU victim
++    ReplaceableEntry* victimLRU = candidates[0];
++    for (const auto& candidate : candidates) {
++        //Find the lru if there is no expired block
++        if (std::static_pointer_cast<REFReplData>(
++                    candidate->replacementData)->lastTouchTick <
++                std::static_pointer_cast<REFReplData>(
++                    victimLRU->replacementData)->lastTouchTick && counter == 0) {
++
++                   victimLRU = candidate;
++		   victim = victimLRU;
++		   
++        }
++}
++   
++   uint64_t e=0,f=0,b=0,c=0,k=0,m=0,n=0,o=0,p=0,q=0,r=0,s=0;
++   uint8_t set=0;
++   //getting the set value for column indexing in the prediction table
++   uint32_t d = std::static_pointer_cast<ReplacementData>(victim->replacementData)->getSet();
++     e = d%256;
++     d = d/256;
++     f = d%256;
++     k = e^f;
++     d = d/256;
++     e = d%256;
++     d = d/256;
++     f = d%256;
++     m = e^f;
++     set = k^m;
++  /** int g = std::static_pointer_cast<ReplacementData>(victim->replacementData)->getWay();
++     h = g%256;
++     g = g/256;
++     i = g%256;
++     j = h^i;
++     g = g/256;
++     h = g%256;
++     g = g/256;
++     i = g%256;
++     l = h^i;
++     way = j^l; */
++     
++   uint8_t addr=set;
++   //getting the hashed PC through program counter for row indexing in the prediction table, PC is 48 bits but it doesn't matter if we xor by 0
++   uint64_t a = std::static_pointer_cast<ReplacementData>(victim->replacementData)->getPC();
++     b = a%256;
++     a = a/256;
++     c = a%256;
++     n = b^c;
++     a = a/256;
++     b = a%256;
++     a = a/256;
++     c = a%256;
++     o = b^c;
++     p = n^o;
++     a = a/256;
++     b = a%256;
++     a = a/256;
++     c = a%256;
++     q = b^c;
++     a = a/256;
++     b = a%256;
++     a = a/256;
++     c = a%256;
++     r = b^c;
++     s = q^r;
++ 
++   uint8_t hashedpc = p^s;
++    //indexing with hashed PC and set values and storing the data in the prediction table with the maxCstored and confidence bit stored values
++    table[hashedpc*255+addr].maxCstored = std::static_pointer_cast<REFReplData>(victim->replacementData)->maxCpresent;
++    if(std::static_pointer_cast<REFReplData>(victim->replacementData)->maxCpresent == std::static_pointer_cast<REFReplData>(victim->replacementData)->maxCpast) {
++	table[hashedpc*255+addr].confstored = 1;
++	}
++    else {
++	table[hashedpc*255+addr].confstored = 0;
++	}
++
++    return victim;
++}
++
++std::shared_ptr<ReplacementData>
++RefCount::instantiateEntry()
++{
++
++    return std::shared_ptr<ReplacementData>(new REFReplData());
++}
++
++RefCount*
++RefCountParams::create()
++{
++
++    return new RefCount(this);
++}
+diff -x '*.pyc' -Naur ./assignment2/gem5/src/mem/cache/replacement_policies/RefCount_rp.hh ./gem5/src/mem/cache/replacement_policies/RefCount_rp.hh
+--- ./assignment2/gem5/src/mem/cache/replacement_policies/RefCount_rp.hh	1969-12-31 17:00:00.000000000 -0700
++++ ./gem5/src/mem/cache/replacement_policies/RefCount_rp.hh	2020-03-24 13:39:26.838634452 -0700
+@@ -0,0 +1,130 @@
++/**
++ * Copyright (c) 2018 Inria
++ * All rights reserved.
++ *
++ * Redistribution and use in source and binary forms, with or without
++ * modification, are permitted provided that the following conditions are
++ * met: redistributions of source code must retain the above copyright
++ * notice, this list of conditions and the following disclaimer;
++ * redistributions in binary form must reproduce the above copyright
++ * notice, this list of conditions and the following disclaimer in the
++ * documentation and/or other materials provided with the distribution;
++ * neither the name of the copyright holders nor the names of its
++ * contributors may be used to endorse or promote products derived from
++ * this software without specific prior written permission.
++ *
++ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
++ * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
++ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
++ * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
++ * OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
++ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
++ * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
++ * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
++ * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
++ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
++ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
++ *
++ * Author: Raunak
++ */
++
++/**
++ * @file
++ * Declaration of a RefCount based on AIP replacement policy.
++ * The victim is chosen using the last touch timestamp and AIP replacement policy.
++ */
++
++#ifndef __MEM_CACHE_REPLACEMENT_POLICIES_RefCount_RP_HH__
++#define __MEM_CACHE_REPLACEMENT_POLICIES_RefCount_RP_HH__
++
++#include <unordered_map>
++
++#include "mem/cache/tags/base.hh"
++#include "mem/cache/replacement_policies/base.hh"
++
++struct RefCountParams;
++
++class RefCount : public BaseReplacementPolicy
++{
++  protected:
++    /** LRU-specific implementation of replacement data. */
++    struct REFReplData : ReplacementData
++    {
++        /** Tick on which the entry was last touched. */
++        Tick lastTouchTick;
++	/** Sizes of count, maxCpresent, macCpast and confidence bit are defined. */
++	unsigned Count:4;
++        unsigned maxCpresent:4;
++        unsigned maxCpast:4;
++        unsigned conf:1;
++	
++        /**
++         * Default constructor. Invalidate data for all the defined variables.
++         */
++        REFReplData() : lastTouchTick(0), Count(0), maxCpresent(0), maxCpast(0), conf(0)   {} 
++    };
++
++        
++	
++
++  public:
++    /** Convenience typedef. */
++    typedef RefCountParams Params;
++
++    /**
++     * Construct and initiliaze this replacement policy.
++     */
++    RefCount(const Params *p);
++
++    /**
++     * Destructor.
++     */
++    ~RefCount() {}
++
++
++
++    /**
++     * Invalidate replacement data to set it as the next probable victim.
++     * Sets its last touch tick as the starting tick and counter to 0. 
++     *
++     * @param replacement_data Replacement data to be invalidated.
++     */
++    void invalidate(const std::shared_ptr<ReplacementData>& replacement_data)
++                                                              const override;
++
++    /**
++     * Touch an entry to update its replacement data.
++     * Sets its last touch tick as the current tick and increase and reset the counters.
++     *
++     * @param replacement_data Replacement data to be touched.
++     */
++    void touch(const std::shared_ptr<ReplacementData>& replacement_data) const
++                                                                     override;
++
++    /**
++     * Reset replacement data. Used when an entry is inserted.
++     * Sets its last touch tick as the current tick.
++     *
++     * @param replacement_data Replacement data to be reset.
++     */
++    void reset(const std::shared_ptr<ReplacementData>& replacement_data) const
++                                                                     override;
++
++    /**
++     * Find replacement victim using LRU timestamps and the AIP policy.
++     *
++     * @param candidates Replacement candidates, selected by indexing policy.
++     * @return Replacement entry to be replaced.
++     */
++    ReplaceableEntry* getVictim(const ReplacementCandidates& candidates) const
++                                                                     override;
++
++    /**
++     * Instantiate a replacement data entry.
++     *
++     * @return A shared pointer to the new replacement data.
++     */
++    std::shared_ptr<ReplacementData> instantiateEntry() override;
++};
++
++#endif // __MEM_CACHE_REPLACEMENT_POLICIES_RefCount_RP_HH__
+diff -x '*.pyc' -Naur ./assignment2/gem5/src/mem/cache/replacement_policies/ReplacementPolicies.py ./gem5/src/mem/cache/replacement_policies/ReplacementPolicies.py
+--- ./assignment2/gem5/src/mem/cache/replacement_policies/ReplacementPolicies.py	2020-03-24 19:44:50.798427638 -0700
++++ ./gem5/src/mem/cache/replacement_policies/ReplacementPolicies.py	2020-03-12 19:39:04.126708989 -0700
+@@ -35,6 +35,7 @@
+     abstract = True
+     cxx_header = "mem/cache/replacement_policies/base.hh"
+ 
++
+ class FIFORP(BaseReplacementPolicy):
+     type = 'FIFORP'
+     cxx_class = 'FIFORP'
+@@ -55,6 +56,12 @@
+     cxx_class = 'LRURP'
+     cxx_header = "mem/cache/replacement_policies/lru_rp.hh"
+ 
++class RefCount(BaseReplacementPolicy):
++    type = 'RefCount'
++    cxx_class = 'RefCount'
++    cxx_header = "mem/cache/replacement_policies/RefCount_rp.hh"
++   
++
+ class BIPRP(LRURP):
+     type = 'BIPRP'
+     cxx_class = 'BIPRP'
+diff -x '*.pyc' -Naur ./assignment2/gem5/src/mem/cache/replacement_policies/SConscript ./gem5/src/mem/cache/replacement_policies/SConscript
+--- ./assignment2/gem5/src/mem/cache/replacement_policies/SConscript	2020-03-24 19:44:50.798427638 -0700
++++ ./gem5/src/mem/cache/replacement_policies/SConscript	2020-03-12 00:52:17.100829368 -0700
+@@ -41,3 +41,4 @@
+ Source('random_rp.cc')
+ Source('second_chance_rp.cc')
+ Source('tree_plru_rp.cc')
++Source('RefCount_rp.cc')
